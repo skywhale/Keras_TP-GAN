@@ -8,75 +8,47 @@ Add Keras_TP-GAN directory to PYTHONPATH
 """
 
 import numpy as np
-import pickle
-from PIL import Image
-from matplotlib import pyplot as plt
 import cv2
-import os
+import sys
+import face_alignment
 from keras_tpgan.tpgan import TPGAN
 
-IMG_PATH = 'INPUT/PROFILE_IMG.jpg'
-GENERATOR_WEIGHTS_FILE = 'SOME/WEIGHTS_FILE.hdf5'
+IMG_PATH = './images/test1.jpg'
+GENERATOR_WEIGHTS_FILE = './epoch0480_loss0.560.hdf5'
 
-EYE_H = 40; EYE_W = 40;
-NOSE_H = 32; NOSE_W = 40;
-MOUTH_H = 32; MOUTH_W = 48;
-
-#nose = 30
-
-eye_y = 40/128
-mouth_y = 88/128
 img_size = 128
+eye_y = 40/img_size
+mouth_y = 88/img_size
 
-i_right_eye = [37, 38, 40, 41]
-i_left_eye = [43, 44, 46, 47]
-i_mouth = [48, 54]
+EYE_H = int(40/128*img_size); EYE_W = int(40/128*img_size);
+NOSE_H = int(32/128*img_size); NOSE_W = int(40/128*img_size);
+MOUTH_H = int(32/128*img_size); MOUTH_W = int(48/128*img_size);
 
+def wait():
+    while True:
+        key = cv2.waitKeyEx(10)
+        if key == ord('q'):
+            break
+
+tpgan = TPGAN(generator_weights=GENERATOR_WEIGHTS_FILE)
+fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2halfD, device='cpu', flip_input=False)
 
 img = cv2.imread(IMG_PATH)    
 
-def mouse_key_point_event(event, x, y, flags, param):
+landmarks = fa.get_landmarks(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+assert landmarks is not None
 
-    if event == cv2.EVENT_LBUTTONUP:
-        cv2.circle(show_img, (x, y), 3, (255, 0, 0), -1)
-        key_points.append((x, y))
-        if len(key_points) == 1:
-            print('input reye')
-        elif len(key_points) == 2:
-            print('input nose_tip')
-        elif len(key_points) == 3:
-            print('input mouth')
+points = landmarks[0]
+reye = np.average(np.array((points[37], points[38], points[40], points[41])), axis=0)
+leye = np.average(np.array((points[43], points[44], points[46], points[47])), axis=0)
+mouth = np.average(np.array((points[51], points[57])), axis=0)
+nose_tip = points[30]
 
-
-
-
-cv2.namedWindow("img", cv2.WINDOW_AUTOSIZE)
-cv2.setMouseCallback("img", mouse_key_point_event)
-
-
-key_points = []
-print('input leye')
-show_img = np.copy(img)
-while len(key_points)<4:
-
-    
-    cv2.imshow("img", show_img)
-    key = cv2.waitKeyEx(10)
-
-  
-
-    if key == ord('q'):
-        break
-    
-cv2.destroyAllWindows()
-
-
-reye, leye, nose_tip, mouth = key_points    
+print('cropping face')
 reye = np.array(reye)
 leye = np.array(leye)
 nose_tip = np.array(nose_tip)
 mouth = np.array(mouth)
-
 
 vec_mouth2reye = reye - mouth
 vec_mouth2leye = leye - mouth
@@ -84,7 +56,6 @@ vec_mouth2leye = leye - mouth
 phi = np.arccos(vec_mouth2reye.dot(vec_mouth2leye) / (np.linalg.norm(vec_mouth2reye) * np.linalg.norm(vec_mouth2leye)))/np.pi * 180
 
 if phi < 15: # consider the profile image is 90 deg.
-
     # in case of 90 deg. set invisible eye with copy of visible eye.
     eye_center = (reye + leye) / 2
     if nose_tip[0] > eye_center[0]:
@@ -92,7 +63,7 @@ if phi < 15: # consider the profile image is 90 deg.
     else:
         reye = leye
 
- # calc angle eyes against horizontal as theta
+# calc angle eyes against horizontal as theta
 if np.array_equal(reye, leye) or phi < 38: # in case of 90 deg. avoid rotation
     theta = 0
 else: 
@@ -124,85 +95,53 @@ if crop_right > rot_img.shape[1]:
     crop_right = rot_img.shape[1]
 
 crop_img = rot_img[crop_up:crop_down, crop_left:crop_right]
-
 crop_img = cv2.resize(crop_img, (img_size, img_size))
 
+landmarks = fa.get_landmarks(cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB))
+assert landmarks is not None
+points = landmarks[0]
 
-global left_up, right_down
-left_up = None; right_down = None
+print('cropping parts')
+leye_points = points[42:48]
+leye_center = (np.max(leye_points, axis=0) + np.min(leye_points, axis=0)) / 2
+leye_left = int(leye_center[0] - EYE_W / 2)
+leye_up = int(leye_center[1] - EYE_H / 2)
+leye_img = crop_img[leye_up:leye_up + EYE_H, leye_left:leye_left + EYE_W].copy()
 
-def mouse_key_rect_event(event, x, y, flags, param):
-    global left_up, right_down
-    
-    if event == cv2.EVENT_LBUTTONUP:
-        key_rects.append((left_up, right_down))
-        if len(key_rects) == 1:
-            print('input reye')
-        elif len(key_rects) == 2:
-            print('input nose_tip')
-        elif len(key_rects) == 3:
-            print('input mouth')
+reye_points = points[36:42]
+reye_center = (np.max(reye_points, axis=0) + np.min(reye_points, axis=0)) / 2
+reye_left = int(reye_center[0] - EYE_W / 2)
+reye_up = int(reye_center[1] - EYE_H / 2)
+reye_img = crop_img[reye_up:reye_up + EYE_H, reye_left:reye_left + EYE_W].copy()
 
-    elif event == cv2.EVENT_MOUSEMOVE:    
-        left_up = (int(x-w/2), int(y-h/2))
-        right_down = (int(x+w/2), int(y+h/2))
+nose_points = points[31:36]
+nose_center = (np.max(nose_points, axis=0) + np.min(nose_points, axis=0)) / 2
+nose_left = int(nose_center[0] - NOSE_W / 2)
+nose_up = int(nose_center[1] - 10 - NOSE_H / 2)
+nose_img = crop_img[nose_up:nose_up + NOSE_H, nose_left:nose_left + NOSE_W].copy()
 
+mouth_points = points[48:60]
+mouth_center = (np.max(mouth_points, axis=0) + np.min(mouth_points, axis=0)) / 2
+mouth_left = int(mouth_center[0] - MOUTH_W / 2)
+mouth_up = int(mouth_center[1] - MOUTH_H / 2)
+mouth_img = crop_img[mouth_up:mouth_up + MOUTH_H, mouth_left:mouth_left + MOUTH_W].copy()
 
-cv2.namedWindow("img", cv2.WINDOW_AUTOSIZE)
-cv2.setMouseCallback("img", mouse_key_rect_event)
-key_rects = []
-print('input leye')
-tpgan= None
-while True:
-    
-    if len(key_rects) < 2:
-        w = EYE_W
-        h = EYE_H
-    elif len(key_rects) == 2:
-        w = NOSE_W
-        h = NOSE_H
-    else:
-        w = MOUTH_W
-        h = MOUTH_H
+show_img = np.copy(crop_img)
+for (x, y) in [reye_center, leye_center, nose_center, mouth_center]:
+    cv2.circle(show_img, (x, y), 3, (255, 0, 0), -1)
+cv2.imshow("orig_img", show_img)
+wait()
 
-    
-    show_img = np.copy(crop_img)
-    
-    if left_up is not None and right_down is not None:
-        cv2.rectangle(show_img, left_up, right_down, (255,255,255), 1)
-    
-    cv2.imshow("img", show_img)
-    key = cv2.waitKeyEx(10)
+x_z = np.random.normal(scale=0.02, size=(1, 100))
+x_face = (cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
+x_leye = (cv2.cvtColor(leye_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
+x_reye = (cv2.cvtColor(reye_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
+x_nose = (cv2.cvtColor(nose_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
+x_mouth = (cv2.cvtColor(mouth_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
 
-    if key == ord('s'):
-        cv2.imwrite("crop_img.jpg", crop_img)
-        if len(key_rects) == 4:
-            leye_img = crop_img[key_rects[0][0][1]:key_rects[0][1][1], key_rects[0][0][0]:key_rects[0][1][0]]
-            reye_img = crop_img[key_rects[1][0][1]:key_rects[1][1][1], key_rects[1][0][0]:key_rects[1][1][0]]
-            nose_img = crop_img[key_rects[2][0][1]:key_rects[2][1][1], key_rects[2][0][0]:key_rects[2][1][0]]
-            mouth_img = crop_img[key_rects[3][0][1]:key_rects[3][1][1], key_rects[3][0][0]:key_rects[3][1][0]]
-            cv2.imwrite("leye.jpg", leye_img)
-            cv2.imwrite("reye.jpg", reye_img)
-            cv2.imwrite("nose.jpg", nose_img)
-            cv2.imwrite("mouth.jpg", mouth_img)
-            
-    if key == ord('p'):
-        global pred_faces, pred_faces64, pred_faces32, pred_leyes, pred_reyes, pred_noses, pred_mouthes
-        x_z = np.random.normal(scale=0.02, size=(1, 100))
-        x_face = (cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
-        x_leye = (cv2.cvtColor(leye_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
-        x_reye = (cv2.cvtColor(reye_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
-        x_nose = (cv2.cvtColor(nose_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
-        x_mouth = (cv2.cvtColor(mouth_img, cv2.COLOR_BGR2RGB).astype(np.float)/255)[np.newaxis,:]
-        
-        if tpgan is None:
-            
-            tpgan = TPGAN(generator_weights=GENERATOR_WEIGHTS_FILE)
-        [pred_faces, pred_faces64, pred_faces32, pred_leyes, pred_reyes, pred_noses, pred_mouthes]\
-        =tpgan.generate([x_face, x_leye, x_reye, x_nose, x_mouth, x_z])
-        break
+[pred_faces, pred_faces64, pred_faces32, pred_leyes, pred_reyes, pred_noses, pred_mouthes
+        ] = tpgan.generate([x_face, x_leye, x_reye, x_nose, x_mouth, x_z])
+cv2.imshow("pred_img", pred_faces[0])
+wait()
 
-    if key == ord('q'):
-        break
-    
 cv2.destroyAllWindows()   
